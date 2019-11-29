@@ -1,0 +1,56 @@
+service: DatadogSyntheticScheduler
+
+custom:
+  syntheticStart: "cron(0 7 * * ? *)"
+  syntheticStop: "cron(0 21 * * ? *)"
+  syntheticPublicId: '<your public id>'
+  datadogApiEndpoint: 'https://api.datadoghq.eu/api/v1/'   #with ending /
+
+provider:
+  name: aws
+  runtime: python3.8
+  logRetentionInDays: 7
+  tracing:
+    lambda: true
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "secretsmanager:GetSecretValue"
+      Resource: !Ref DatadogSyntheticSchedulerSecret
+  iamManagedPolicies:
+    - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
+
+package:
+  include:
+  - index.py
+
+functions:
+  DdSynSche:
+    handler: index.handler
+    description: 'Datadog Synthetic Scheduler'
+    memorySize: 128
+    timeout: 60
+    environment:
+      syntheticPublicId: ${self:custom.syntheticPublicId}
+      datadogApiEndpoint: ${self:custom.datadogApiEndpoint}
+      datadogSecretName: 'DatadogSyntheticSchedulerSecret'
+      AWS_XRAY_CONTEXT_MISSING: LOG_ERROR
+      AWS_XRAY_TRACING_NAME: DatadogSyntheticScheduler
+    events:
+      - eventBridge:
+          schedule: ${self:custom.syntheticStart}
+          input:
+            syntheticSetStatus: 'live'
+      - eventBridge:
+          schedule: ${self:custom.syntheticStop}
+          input:
+            syntheticSetStatus: 'paused'
+
+resources:
+  Resources:
+    DatadogSyntheticSchedulerSecret:
+      Type: "AWS::SecretsManager::Secret"
+      Properties:
+        Name: DatadogSyntheticSchedulerSecret
+        Description: Credentials for Datadog Synthetic Scheduler
+        SecretString: '{"datadog":{"api_key":"<your api key>","app_key":"<your app key>"}}'
